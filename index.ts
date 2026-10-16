@@ -12,7 +12,7 @@ import { basename, dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { WSClient, generateReqId, decryptFile } from "aibot-node-sdk";
 
-import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 
 // ============================================================================
@@ -103,6 +103,7 @@ const PROMPT = `
 [wecom-bot] 企业微信机器人已连接
 - 收到 @机器人 的消息会自动处理
 - 回复会自动发送到对应用户的会话
+- 使用 wecombot-send 另发一条独立消息，可多次调用
 - 使用 wecombot-attach 发送文件`;
 
 // ============================================================================
@@ -705,17 +706,30 @@ ${contentText}${imageText}`, session);
     pi.registerTool({
       name: "wecombot-send",
       label: "发送消息",
-      description: "发送消息到企业微信（仅在回复用户消息时可用）",
-      promptSnippet: "Send a text message to WeCom chat",
+      description: "向当前企业微信会话另发一条独立消息，不覆盖正在生成的主回复。可多次调用。仅在用户已发过消息后可用。",
+      promptSnippet: "Send an extra WeCom message; each call is a separate message",
       parameters: Type.Object({
         message: Type.String(),
       }),
       async execute(toolCallId, params, signal, onUpdate, ctx) {
-        if (!isWecomConnected()) return { content: [{ type: "text", text: "⚠️ 机器人未连接" }], details: {} };
-        const reqId = sessions.keys().next().value;
-        if (!reqId) return { content: [{ type: "text", text: "⚠️ 无法发送：企业微信需要先收到用户消息才能回复。请等待用户发消息后再发送。" }], details: {} };
-        replyTo(reqId, params.message, true);
-        return { content: [{ type: "text", text: "✅ 已发送" }], details: {} };
+        if (!isWecomConnected() || !ws) return { content: [{ type: "text", text: "⚠️ 机器人未连接" }], details: {} };
+        const reqId = currentReqId && sessions.has(currentReqId) ? currentReqId : sessions.keys().next().value;
+        const session = reqId ? sessions.get(reqId) : undefined;
+        if (!session) return { content: [{ type: "text", text: "⚠️ 无法发送：企业微信需要先收到用户消息才能回复。请等待用户发消息后再发送。" }], details: {} };
+        const chatid = session.chatId || session.userId;
+        if (!chatid) return { content: [{ type: "text", text: "⚠️ 无法发送：缺少会话 ID" }], details: {} };
+        const body = {
+          msgtype: "markdown" as const,
+          markdown: { content: params.message },
+          chat_type: session.chatId ? 2 : 1,
+        };
+        try {
+          await ws.sendMessage(chatid, body);
+        } catch (err: any) {
+          const detail = err?.errmsg || err?.message || String(err);
+          return { content: [{ type: "text", text: `⚠️ 发送失败: ${detail}` }], details: {} };
+        }
+        return { content: [{ type: "text", text: "✅ 已另发一条消息" }], details: {} };
       },
     });
   }
