@@ -26,6 +26,17 @@ pi install npm:pi-wecombot
 pi install git:github.com/huang-x-h/pi-wecombot
 ```
 
+### 从本地源码加载
+
+在仓库目录执行：
+
+```bash
+npm install
+pi install "$PWD"
+```
+
+npm 只安装 `aibot-node-sdk` 及其依赖；pi 接口和 TypeBox 由 pi 宿主提供。若已安装 npm 版本，先执行 `pi remove npm:pi-wecombot`，再注册本地路径，避免重复加载。重启 pi 后生效。
+
 ## 架构设计
 
 ### 配置分层
